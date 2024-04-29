@@ -38,7 +38,7 @@ char * getRandomWord(struct serverData * server) {
  * Check if given word 'word' is in the
  * wordle file.
  */
-char validWord(char * word, struct serverData * server) {
+char isValidWord(char * word, struct serverData * server) {
     // Start searching from the top
     rewind(server->file);
 

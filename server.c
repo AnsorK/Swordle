@@ -240,12 +240,14 @@ int main(int argc, char ** argv) {
  */
 void * play(void * arg) {
     struct clientData * client = (struct clientData *)arg;
-    char * chosen_word = getRandomWord(client->server);
-    convertToUpper(chosenWord);
-    addWord(chosenWord);
-    convertToLower(chosenWord);
 
-    pthread_t threadID = pthread_self();
+    char * chosen_word = getRandomWord(client->server);
+
+    makeUppercase(chosen_word);
+    addToWordsUsed(chosen_word);
+    makeLowercase(chosen_word);
+
+    pthread_t thread_id = pthread_self();
 
     printf("MAIN: rcvd incoming connection request\n");
 
@@ -256,24 +258,33 @@ void * play(void * arg) {
     }
     *(buffer + 5) = '\0';
 
+    /*
+     * The client sends the server 5 bytes of data,
+     * representing a 5 letter non-null-terminated string.
+     * The server sends back an 8 byte response:
+     * 1: Char specifying if valid guess
+     * 2: Number of guesses left
+     * 5: The result of the guess
+     */
     int bytes_received, total_bytes_received = 0;
-    short remainingGuesses = 6;
-    int correctCount;
+    short remaining_guesses = 6;
+    int correct_count;
     char * result = calloc(5, sizeof(char));
     char * reply = calloc(8, 1);
 
     do {
-        printf("THREAD %lu: waiting for guess\n", (unsigned long) threadID);
+        printf("THREAD %lu: waiting for guess\n", (unsigned long) thread_id);
 
+        // Client may not send data all at once
         while (total_bytes_received < 5) {
             bytes_received = recv(client->sd, buffer + bytes_received, 6 - bytes_received, 0);
             if (bytes_received == -1) {
                 perror("recv");
                 exit(EXIT_FAILURE);
             } else if (bytes_received == 0) {
-                printf("THREAD %lu: client gave up; closing TCP connection...\n", (unsigned long) threadID);
-                convertToUpper(chosenWord);
-                printf("THREAD %lu: game over; word was %s!\n", (unsigned long) threadID, chosenWord);
+                printf("THREAD %lu: client gave up; closing TCP connection...\n", (unsigned long) thread_id);
+                makeUppercase(chosen_word);
+                printf("THREAD %lu: game over; word was %s!\n", (unsigned long) thread_id, chosen_word);
                 incrementTotalLosses();
                 break;
             } else
@@ -282,32 +293,32 @@ void * play(void * arg) {
         if (total_bytes_received < 5)
             break;
         else if (total_bytes_received == 5) {
-            printf("THREAD %lu: rcvd guess: %s\n", (unsigned long) threadID, buffer);
+            printf("THREAD %lu: rcvd guess: %s\n", (unsigned long) thread_id, buffer);
 
-            --remainingGuesses;
-            correctCount = 0;
+            --remaining_guesses;
+            correct_count = 0;
 
-            convertToLower(buffer);
+            makeLowercase(buffer);
 
-            char validGuess = validWord(buffer, client->S);
-            if (validGuess == 'Y') {
+            char valid_guess = isValidWord(buffer, client->server);
+            if (valid_guess == 'Y') {
                 incrementTotalGuesses();
                 memcpy(result, "-----", 5);
-                wordle(&correctCount, result, buffer, chosenWord);
+                wordle(&correct_count, result, buffer, chosen_word);
             } else {
                 memcpy(result, "?????", 5);
-                ++remainingGuesses;
+                ++remaining_guesses;
             }
 
-            unsigned short value = htons(remainingGuesses);
-            memcpy(reply, &validGuess, 1);
+            unsigned short value = htons(remaining_guesses);
+            memcpy(reply, &valid_guess, 1);
             memcpy(reply + 1, &value, 2);
             memcpy(reply + 3, result, 5);
 
-            if (validGuess == 'Y')
-                printf("THREAD %lu: sending reply: %s (%hd guess%s left)\n", (unsigned long) threadID, result, remainingGuesses, remainingGuesses == 1 ? "" : "es");
+            if (valid_guess == 'Y')
+                printf("THREAD %lu: sending reply: %s (%hd guess%s left)\n", (unsigned long) thread_id, result, remaining_guesses, remaining_guesses == 1 ? "" : "es");
             else
-                printf("THREAD %lu: invalid guess; sending reply: %s (%hd guess%s left)\n", (unsigned long) threadID, result, remainingGuesses, remainingGuesses == 1 ? "" : "es");
+                printf("THREAD %lu: invalid guess; sending reply: %s (%hd guess%s left)\n", (unsigned long) thread_id, result, remaining_guesses, remaining_guesses == 1 ? "" : "es");
 
             int rc = send(client->sd, reply, 8, 0);
             if (rc == -1) {
@@ -315,22 +326,22 @@ void * play(void * arg) {
                 pthread_exit(NULL);
             }
 
-            if (correctCount == 5 || remainingGuesses == 0) {
-                convertToUpper(chosenWord);
-                printf("THREAD %lu: game over; word was %s!\n", (unsigned long) threadID, chosenWord);
-                if (correctCount == 5)
+            if (correct_count == 5 || remaining_guesses == 0) {
+                makeUppercase(chosen_word);
+                printf("THREAD %lu: game over; word was %s!\n", (unsigned long) thread_id, chosen_word);
+                if (correct_count == 5)
                     incrementTotalWins();
-                if (remainingGuesses == 0)
+                if (remaining_guesses == 0)
                     incrementTotalLosses();
                 break;
             }
         }
         bytes_received = total_bytes_received = 0;
-    } while(shutdownFlag == 0);
+    } while(shutdown_flag == 0);
 
     close(client->sd);
 
-    free(chosenWord);
+    free(chosen_word);
     free(reply);
     free(result);
     free(buffer);
@@ -339,12 +350,12 @@ void * play(void * arg) {
     pthread_exit(NULL);
 }
 
-
-void wordle(int * correctCount, char * result, char * strGuess, char * strActual) {
+// Wordle rules!
+void wordle(int * correct_count, char * result, char * str_guess, char * str_actual) {
     for (int i = 0; i < 5; ++i)
-        if (*(strGuess + i) == *(strActual + i)) {
-            *(result + i) = toupper(*(strActual + i));
-            ++(*correctCount);
-        } else if (strchr(strActual, *(strGuess + i)) != NULL)
-            *(result + i) = *(strGuess + i);
+        if (*(str_guess + i) == *(str_actual + i)) {
+            *(result + i) = toupper(*(str_actual + i));
+            ++(*correct_count);
+        } else if (strchr(str_actual, *(str_guess + i)) != NULL)
+            *(result + i) = *(str_guess + i);
 }
