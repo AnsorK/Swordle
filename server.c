@@ -65,6 +65,7 @@ void addToWordsUsed(char * new_word) {
     // Increase size by 1 to fit new word in
     words_used = realloc(words_used, (words_used_index + 2) * sizeof(char *));
 
+    // Copy word to new address
     *(words_used + words_used_index) = calloc(1, strlen(new_word) + 1);
     strcpy(*(words_used + words_used_index), new_word);
 
@@ -79,7 +80,7 @@ void addToWordsUsed(char * new_word) {
  * is sent to the running server.
  */
 
-volatile sig_atomic_t shutdownFlag = 0;
+volatile sig_atomic_t shutdown_flag = 0;
 
 // Print out all the words in 'words_used'
 void printWords() {
@@ -94,8 +95,8 @@ void printWords() {
     printf("\n");
 }
 
-void sigusr1Handler(int signum) {
-    shutdownFlag = 1;
+void sigHandler(int signum) {
+    shutdown_flag = 1;
 
     printf("MAIN: SIGUSR1 rcvd; Wordle server shutting down...\n");
     printf("MAIN: Wordle server shutting down...\n\n");
@@ -127,8 +128,6 @@ struct clientData {
 
 
 
-
-int countWords(char * fileName);
 int server(struct serverData * S);
 void * play(void * arg);
 void convertToLower(char * str);
@@ -136,11 +135,6 @@ void convertToUpper(char * str);
 char validWord(char * word, struct serverData * S);
 char * getRandomWord(struct serverData * server);
 void wordle(int * correctCount, char * result, char * guess, char * actual);
-
-int wordle_server(int argc, char ** argv) {
-    return server(&S);
-}
-
 
 
 int main(int argc, char ** argv) {
@@ -164,6 +158,63 @@ int main(int argc, char ** argv) {
     struct serverData server;
     parseArgs(&argc, argv, &server);
 
+    // Seed the random word picker
+    srand(server.seed);
+
+    // Open file for parsing
+    FILE * file = fopen(server.file_name, "r");
+    if (file == NULL) {
+        perror("Failed to open the file");
+        return EXIT_FAILURE;
+    }
+
+    server.file = file;
+
+    // Initialize server and client socket information
+    int server_sd;
+    struct sockaddr_in serverAddr, clientAddr;
+    socklen_t addrLen = sizeof(serverAddr);
+    if ((serverSD = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("Socket creation failed");
+        return(EXIT_FAILURE);
+    }
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serverAddr.sin_port = htons(server.port);
+    if (bind(serverSD, (struct sockaddr *)&serverAddr, addrLen) == -1) {
+        perror("Bind failed");
+        return(EXIT_FAILURE);
+    }
+    if (listen(serverSD, 10) == -1) {
+        perror("Listen failed");
+        return(EXIT_FAILURE);
+    }
+
+    // Custom handler for termination signals
+    signal(SIGINT, sigHandler);
+    signal(SIGTERM, sigHandler);
+    signal(SIGUSR2, sigHandler);
+    signal(SIGUSR1, sigHandler);
+
+    printf("MAIN: opened %s (%d words)\n");
+    printf("MAIN: Wordle server listening on port {%d}\n", server.file_name, server.word_count, server.port);
+
+    while (!shutdown_flag) {
+        int clientSD = accept(serverSD, (struct sockaddr *)&clientAddr, &addrLen);
+        struct clientData * C = (struct clientData *)calloc(1, sizeof(struct clientData));
+        C->S = S;
+        C->sd = clientSD;
+        pthread_t threadId;
+        if (pthread_create(&threadId, NULL, play, (void *)C) != 0) {
+            perror("Thread creation failed");
+            close(clientSD);
+            free(C);
+            return(EXIT_FAILURE);
+        }
+        pthread_detach(threadId);
+    }
+    fclose(file);
+    return EXIT_SUCCESS;
 
 
 
@@ -180,75 +231,6 @@ int main(int argc, char ** argv) {
     return EXIT_SUCCESS;
 }
 
-
-int countWords(char * fileName) {
-    FILE * file = fopen(fileName, "r");
-    if (file == NULL) {
-        perror("Error opening file");
-        return -1;
-    }
-    int wordCount = 0;
-    char * word = calloc(7, sizeof(char));
-    if (word == NULL) {
-        perror("Error allocating memory");
-        fclose(file);
-        return -1;
-    }
-    while (fgets(word, 7, file))
-        ++wordCount;
-    fclose(file);
-    free(word);
-    return wordCount;
-}
-
-int server(struct serverData * S) {
-    srand(S->seed);
-    FILE * file = fopen(S->wordFileName, "r");
-    if (file == NULL) {
-        perror("Failed to open the file");
-        return(EXIT_FAILURE);
-    }
-    S->wordFile = file;
-    int serverSD;
-    struct sockaddr_in serverAddr, clientAddr;
-    socklen_t addrLen = sizeof(serverAddr);
-    if ((serverSD = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("Socket creation failed");
-        return(EXIT_FAILURE);
-    }
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serverAddr.sin_port = htons(S->listenerPort);
-    if (bind(serverSD, (struct sockaddr *)&serverAddr, addrLen) == -1) {
-        perror("Bind failed");
-        return(EXIT_FAILURE);
-    }
-    if (listen(serverSD, 10) == -1) {
-        perror("Listen failed");
-        return(EXIT_FAILURE);
-    }
-    signal(SIGINT, SIG_IGN);
-    signal(SIGTERM, SIG_IGN);
-    signal(SIGUSR2, SIG_IGN);
-    signal(SIGUSR1, sigusr1Handler);
-    printf("MAIN: opened %s (%d words)\nMAIN: Wordle server listening on port {%d}\n", S->wordFileName, S->numWords, S->listenerPort);
-    while (!shutdownFlag) {
-        int clientSD = accept(serverSD, (struct sockaddr *)&clientAddr, &addrLen);
-        struct clientData * C = (struct clientData *)calloc(1, sizeof(struct clientData));
-        C->S = S;
-        C->sd = clientSD;
-        pthread_t threadId;
-        if (pthread_create(&threadId, NULL, play, (void *)C) != 0) {
-            perror("Thread creation failed");
-            close(clientSD);
-            free(C);
-            return(EXIT_FAILURE);
-        }
-        pthread_detach(threadId);
-    }
-    fclose(file);
-    return EXIT_SUCCESS;
-}
 
 char * getRandomWord(struct serverData * server) {
     rewind(server->wordFile);
