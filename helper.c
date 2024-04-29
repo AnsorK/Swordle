@@ -23,6 +23,7 @@ char * getRandomWord(struct serverData * server) {
     *(word + 5) = '\0';
 
     makeLowercase(word);
+    rewind(server->file);
 
     return word;
 }
@@ -51,6 +52,7 @@ char isValidWord(char * word, struct serverData * server) {
     }
 
     free(valid_word);
+    rewind(server->file);
 
     return 'N';
 }
