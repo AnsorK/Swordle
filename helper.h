@@ -1,7 +1,10 @@
 #ifndef HELPER_H
 #define HELPER_H
 
-int wordle_server(int argc, char **argv);
+char * getRandomWord(struct serverData * server);
+char isValidWord(char * word, struct serverData * server);
+void makeLowercase(char * str);
+void makeUppercase(char * str);
 int parseArgs(int * argc, char ** argv, struct serverData * S);
 
 #endif

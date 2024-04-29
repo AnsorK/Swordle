@@ -1,3 +1,4 @@
+#include "helper.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,6 +11,79 @@ struct serverData {
     int word_count;
     FILE * file;
 };
+
+/*
+ * Get a random word from the wordle file
+ * with 'rand()'. The pseudo-random number
+ * generator is already seeded at this point.
+ */
+char * getRandomWord(struct serverData * server) {
+    // Start searching from the top
+    rewind(server->file);
+
+    int chosen_line = rand() % server->word_count;
+    char * word = calloc(7, sizeof(char));
+
+    for (int line = 0; line <= chosen_line; ++line)
+        fgets(word, 7, server->file);
+
+    *(word + 5) = '\0';
+
+    make_lowercase(word);
+
+    return word;
+}
+
+/*
+ * Check if given word 'word' is in the
+ * wordle file.
+ */
+char validWord(char * word, struct serverData * server) {
+    // Start searching from the top
+    rewind(server->file);
+
+    char * valid_word = calloc(7, sizeof(char));
+
+    for (int line = 0; line < server->word_count; ++line) {
+        fgets(valid_word, 7, server->file);
+
+        *(valid_word + 5) = '\0';
+
+        makeLowercase(valid_word);
+
+        if (strcmp(word, valid_word) == 0) {
+            free(valid_word);
+            return 'Y';
+        }
+    }
+
+    free(valid_word);
+
+    return 'N';
+}
+
+/*
+ * Make every letter in 'str' lowercase.
+ */
+void makeLowercase(char * str) {
+    while (*str != '\0') {
+        *str = tolower(*str);
+        ++str;
+    }
+}
+
+/*
+ * Make every letter in 'str' uppercase.
+ */
+void makeUppercase(char * str) {
+    while (*str != '\0') {
+        *str = toupper(*str);
+        ++str;
+    }
+}
+
+
+
 
 /*
  * Parse command-line arguments and validate them.

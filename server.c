@@ -122,21 +122,20 @@ struct serverData {
 };
 
 struct clientData {
-    struct serverData * S;
     int sd;
+    struct serverData * server;
 };
 
-
-
-int server(struct serverData * S);
 void * play(void * arg);
-void convertToLower(char * str);
-void convertToUpper(char * str);
-char validWord(char * word, struct serverData * S);
-char * getRandomWord(struct serverData * server);
 void wordle(int * correctCount, char * result, char * guess, char * actual);
 
-
+/*
+ * Welcome to Swordle!
+ * Takes in a file containing 5 letter words
+ * seperated by a new line, and acts as a
+ * server to distribute games to incoming
+ * clients. Every client gets a differnt word.
+ */
 int main(int argc, char ** argv) {
 
     // Initialize global variables
@@ -155,37 +154,41 @@ int main(int argc, char ** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
 
     // Store important server data
-    struct serverData server;
-    parseArgs(&argc, argv, &server);
+    struct serverData * server;
+    parseArgs(&argc, argv, server);
 
     // Seed the random word picker
-    srand(server.seed);
+    srand(server->seed);
 
     // Open file for parsing
-    FILE * file = fopen(server.file_name, "r");
+    FILE * file = fopen(server->file_name, "r");
     if (file == NULL) {
         perror("Failed to open the file");
         return EXIT_FAILURE;
     }
 
-    server.file = file;
+    server->file = file;
 
     // Initialize server and client socket information
     int server_sd;
-    struct sockaddr_in serverAddr, clientAddr;
-    socklen_t addrLen = sizeof(serverAddr);
-    if ((serverSD = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t addr_len = sizeof(server_addr);
+
+    if ((server_sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("Socket creation failed");
         return(EXIT_FAILURE);
     }
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serverAddr.sin_port = htons(server.port);
-    if (bind(serverSD, (struct sockaddr *)&serverAddr, addrLen) == -1) {
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(server->port);
+
+    // Bind the descriptor to address and open connection
+    if (bind(server_sd, (struct sockaddr *)&server_addr, addr_len) == -1) {
         perror("Bind failed");
         return(EXIT_FAILURE);
     }
-    if (listen(serverSD, 10) == -1) {
+    if (listen(server_sd, 10) == -1) {
         perror("Listen failed");
         return(EXIT_FAILURE);
     }
@@ -197,33 +200,34 @@ int main(int argc, char ** argv) {
     signal(SIGUSR1, sigHandler);
 
     printf("MAIN: opened %s (%d words)\n");
-    printf("MAIN: Wordle server listening on port {%d}\n", server.file_name, server.word_count, server.port);
+    printf("MAIN: Wordle server listening on port {%d}\n", server->file_name, server->word_count, server->port);
 
     while (!shutdown_flag) {
-        int clientSD = accept(serverSD, (struct sockaddr *)&clientAddr, &addrLen);
-        struct clientData * C = (struct clientData *)calloc(1, sizeof(struct clientData));
-        C->S = S;
-        C->sd = clientSD;
-        pthread_t threadId;
-        if (pthread_create(&threadId, NULL, play, (void *)C) != 0) {
+        // Get client descriptor and address
+        int client_sd = accept(server_sd, (struct sockaddr *)&client_addr, &addr_len);
+
+        struct clientData * client = (struct clientData *)calloc(1, sizeof(struct clientData));
+        client->server = server;
+        client->sd = client_sd;
+
+        pthread_t thread_id;
+        // Execute 'play' for new threads
+        if (pthread_create(&thread_id, NULL, play, (void *)client) != 0) {
             perror("Thread creation failed");
-            close(clientSD);
-            free(C);
-            return(EXIT_FAILURE);
+
+            close(client_sd);
+            free(client);
+
+            return EXIT_FAILURE;
         }
-        pthread_detach(threadId);
+
+        // Make thread run independently
+        pthread_detach(thread_id);
     }
-    fclose(file);
-    return EXIT_SUCCESS;
-
-
-
-
-
-
-
 
     // Clean memory
+    fclose(file);
+
     for (char ** ptr = words_used; *ptr; ++ptr)
         free(*ptr);
     free(words_used);
@@ -231,53 +235,12 @@ int main(int argc, char ** argv) {
     return EXIT_SUCCESS;
 }
 
-
-char * getRandomWord(struct serverData * server) {
-    rewind(server->wordFile);
-    int chosenLine = rand() % server->numWords;
-    char * word = calloc(7, sizeof(char));
-    for (int line = 0; line <= chosenLine; ++line)
-        fgets(word, 7, server->wordFile);
-    *(word + 5) = '\0';
-    convertToLower(word);
-    rewind(server->wordFile);
-    return word;
-}
-
-void convertToLower(char * str) {
-    while (*str != '\0') {
-        *str = tolower(*str);
-        ++str;
-    }
-}
-
-void convertToUpper(char * str) {
-    while (*str != '\0') {
-        *str = toupper(*str);
-        ++str;
-    }
-}
-
-void printWords() {
-    char ** ptr = words;
-    char ** end = words + words_index;
-    do {
-        printf(" %s", *ptr);
-        ptr++;
-    } while (ptr < end);
-    printf("\n");
-    /*
-    char * word = *words;
-    while (word != NULL)
-        printf(" %s", *(word++));
-    printf("\n");*/
-}
-
-
-
+/*
+ * Game logic for every client!
+ */
 void * play(void * arg) {
     struct clientData * client = (struct clientData *)arg;
-    char * chosenWord = getRandomWord(client->S);
+    char * chosen_word = getRandomWord(client->server);
     convertToUpper(chosenWord);
     addWord(chosenWord);
     convertToLower(chosenWord);
@@ -376,22 +339,6 @@ void * play(void * arg) {
     pthread_exit(NULL);
 }
 
-char validWord(char * word, struct serverData * S) {
-    rewind(S->wordFile);
-    char * word2 = calloc(7, sizeof(char));
-    for (int i = 0; i < S->numWords; ++i) {
-        fgets(word2, 7, S->wordFile);
-        *(word2 + 5) = '\0';
-        convertToLower(word2);
-        if (strcmp(word, word2) == 0) {
-            free(word2);
-            return 'Y';
-        }
-    }
-    free(word2);
-    rewind(S->wordFile);
-    return 'N';
-}
 
 void wordle(int * correctCount, char * result, char * strGuess, char * strActual) {
     for (int i = 0; i < 5; ++i)
