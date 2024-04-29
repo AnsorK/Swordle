@@ -107,15 +107,17 @@ void sigusr1Handler(int signum) {
     printWords();
 }
 
-
-
+/*
+ * Structures to hold important information for
+ * both the server and client
+ */
 
 struct serverData {
-    int listenerPort;
+    int port;
     int seed;
-    char * wordFileName;
-    int numWords;
-    FILE * wordFile;
+    char * file_name;
+    int word_count;
+    FILE * file;
 };
 
 struct clientData {
@@ -123,7 +125,9 @@ struct clientData {
     int sd;
 };
 
-int parseArgs(int * argc, char ** argv, struct serverData * S);
+
+
+
 int countWords(char * fileName);
 int server(struct serverData * S);
 void * play(void * arg);
@@ -134,9 +138,6 @@ char * getRandomWord(struct serverData * server);
 void wordle(int * correctCount, char * result, char * guess, char * actual);
 
 int wordle_server(int argc, char ** argv) {
-    setvbuf(stdout, NULL, _IONBF, 0);
-    struct serverData S;
-    parseArgs(&argc, argv, &S);
     return server(&S);
 }
 
@@ -149,13 +150,19 @@ int main(int argc, char ** argv) {
     total_wins = 0;
     total_losses = 0;
 
-    words = calloc(1, sizeof(char *));
+    words_used = calloc(1, sizeof(char *));
 
-    if (words == NULL) {
+    if (words_used == NULL) {
         perror( "calloc() failed" );
         return EXIT_FAILURE;
     }
 
+    // Unbuffer output for instantaneous results
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    // Store important server data
+    struct serverData server;
+    parseArgs(&argc, argv, &server);
 
 
 
@@ -165,49 +172,14 @@ int main(int argc, char ** argv) {
 
 
 
-    for (char **ptr = words; *ptr; ++ptr)
+    // Clean memory
+    for (char ** ptr = words_used; *ptr; ++ptr)
         free(*ptr);
-    free(words);
+    free(words_used);
 
     return EXIT_SUCCESS;
 }
 
-
-
-
-
-
-
-
-int parseArgs(int * argc, char ** argv, struct serverData * S) {
-    if (*argc != 5) {
-        fprintf(stderr, "ERROR: Invalid argument(s)\nUSAGE: hw4.out <listener-port> <seed> <word-filename> <num-words>\n");
-        exit(EXIT_FAILURE);
-    }
-    S->listenerPort = atoi(*(argv + 1));
-    if (S->listenerPort < 0 || S->listenerPort > 65535) {
-        fprintf(stderr, "ERROR: Invalid argument(s)\nUSAGE: hw4.out <listener-port> <seed> <word-filename> <num-words>\n");
-        exit(EXIT_FAILURE);
-    }
-    S->seed = atoi(*(argv + 2));
-    if (S->seed < 0) {
-        fprintf(stderr, "ERROR: Invalid argument(s)\nUSAGE: hw4.out <listener-port> <seed> <word-filename> <num-words>\n");
-        exit(EXIT_FAILURE);
-    }
-    S->wordFileName = *(argv + 3);
-    if (access(S->wordFileName, F_OK) != 0) {
-        fprintf(stderr, "ERROR: Invalid argument(s)\nUSAGE: hw4.out <listener-port> <seed> <word-filename> <num-words>\n");
-        exit(EXIT_FAILURE);
-    }
-    S->numWords = atoi(*(argv + 4));
-    /*int ref = countWords(S->wordFileName);
-    if (ref == -1 || ref != S->numWords) {
-        printf("%d\n", ref);
-        fprintf(stderr, "ERROR: Invalid argument(s)\nUSAGE: hw4.out <listener-port> <seed> <word-filename> <num-words>\n");
-        exit(EXIT_FAILURE);
-    }*/
-    return EXIT_SUCCESS;
-}
 
 int countWords(char * fileName) {
     FILE * file = fopen(fileName, "r");
