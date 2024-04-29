@@ -108,24 +108,6 @@ void sigHandler(int signum) {
     printWords();
 }
 
-/*
- * Structures to hold important information for
- * both the server and client
- */
-
-struct serverData {
-    int port;
-    int seed;
-    char * file_name;
-    int word_count;
-    FILE * file;
-};
-
-struct clientData {
-    int sd;
-    struct serverData * server;
-};
-
 void * play(void * arg);
 void wordle(int * correctCount, char * result, char * guess, char * actual);
 
@@ -155,6 +137,7 @@ int main(int argc, char ** argv) {
 
     // Store important server data
     struct serverData * server;
+    server = (struct serverData *)malloc(sizeof(struct serverData));
     parseArgs(&argc, argv, server);
 
     // Seed the random word picker
@@ -199,8 +182,8 @@ int main(int argc, char ** argv) {
     signal(SIGUSR2, sigHandler);
     signal(SIGUSR1, sigHandler);
 
-    printf("MAIN: opened %s (%d words)\n");
-    printf("MAIN: Wordle server listening on port {%d}\n", server->file_name, server->word_count, server->port);
+    printf("MAIN: opened %s (%d words)\n", server->file_name, server->word_count);
+    printf("MAIN: Wordle server listening on port {%d}\n", server->port);
 
     while (!shutdown_flag) {
         // Get client descriptor and address
@@ -227,6 +210,8 @@ int main(int argc, char ** argv) {
 
     // Clean memory
     fclose(file);
+
+    free(server);
 
     for (char ** ptr = words_used; *ptr; ++ptr)
         free(*ptr);

@@ -1,16 +1,9 @@
+#include <ctype.h>
 #include "helper.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-
-// For reference
-struct serverData {
-    int port;
-    int seed;
-    char * file_name;
-    int word_count;
-    FILE * file;
-};
 
 /*
  * Get a random word from the wordle file
@@ -29,7 +22,7 @@ char * getRandomWord(struct serverData * server) {
 
     *(word + 5) = '\0';
 
-    make_lowercase(word);
+    makeLowercase(word);
 
     return word;
 }
@@ -82,9 +75,6 @@ void makeUppercase(char * str) {
     }
 }
 
-
-
-
 /*
  * Parse command-line arguments and validate them.
  * Assumes that the word count passed matches the total
@@ -97,7 +87,7 @@ int parseArgs(int * argc, char ** argv, struct serverData * server) {
         fprintf(stderr, "ERROR: Invalid number of arguments passed.\n");
         return EXIT_FAILURE;
     }
-
+    
     server->port = atoi(*(argv + 1));
     if (server->port < 0 || server->port > 65535) {
         fprintf(stderr, "ERROR: Port value out of range.\n");
